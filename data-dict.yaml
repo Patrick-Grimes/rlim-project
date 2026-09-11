@@ -1,0 +1,117 @@
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+
+name: rlim_bronze
+label: "Red Line Impact Model (RLIM) Bronze Layer"
+description: >-
+  Bronze analytical layer schemas for Mecklenburg County real estate transactions,
+  tax parcel geodata, and CATS transit stops.
+
+tables:
+  - name: parcels
+    label: "Mecklenburg County Tax Parcels"
+    description: "Mecklenburg County geographic tax parcel polygons and baseline county assessment valuations."
+    columns:
+      - name: parcel_id
+        type: string
+        description: "Unique Mecklenburg County parcel identification number (PID)."
+        examples: ["00123456", "00123457"]
+      - name: owner_name
+        type: string
+        description: "Deeded owner of record."
+        examples: ["TOWN OF DAVIDSON", "TRUSTEE CORP"]
+      - name: legal_desc
+        type: string
+        description: "Recorded legal subdivision or plat description."
+        examples: ["LOT 1 BLK 2 MAIN ST", "UNIT 301 CONDO"]
+      - name: zoning
+        type: string
+        description: "Municipality-specific zoning classification code."
+        examples: ["TOD-CC", "R-1", "V-C"]
+      - name: land_unit_val
+        type: number
+        description: "Assessed land value from county revaluation in USD."
+        examples: [320000.0, 450000.0]
+      - name: calc_acreage
+        type: number
+        description: "Total parcel geographic area in acres."
+        examples: [0.45, 0.75]
+      - name: geom
+        type: string
+        description: "Centroid or polygon coordinates in EPSG:4326."
+        examples: ["POINT(-80.8431 35.4993)"]
+      - name: ingest_timestamp
+        type: datetime
+        description: "Timestamp when record entered the Bronze layer."
+        range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
+
+  - name: property_sales
+    label: "Property Sales Transactions"
+    description: "Historical real estate deed recordings and sales transactions across Mecklenburg County."
+    columns:
+      - name: sale_id
+        type: string
+        description: "Unique system or transaction identifier."
+        examples: ["SALE_2024_001", "SALE_2021_092"]
+      - name: parcel_id
+        type: string
+        description: "Foreign key referencing parcels.parcel_id."
+        examples: ["00123456", "00123457"]
+      - name: sale_date
+        type: date
+        description: "Date of transaction closing and deed recording."
+        range: ["2000-01-01", "2026-12-31"]
+      - name: sale_price
+        type: number
+        description: "Nominal recorded sales price in USD."
+        examples: [420000.0, 550000.0]
+      - name: qualified_sale_flag
+        type: string
+        description: "Indicates whether the sale meets arms-length market criteria."
+        examples: ["Y", "N"]
+      - name: deed_book
+        type: string
+        description: "Mecklenburg County Register of Deeds volume book index."
+        examples: ["34521", "28910"]
+      - name: deed_page
+        type: string
+        description: "Mecklenburg County Register of Deeds page index."
+        examples: ["102", "45"]
+      - name: ingest_timestamp
+        type: datetime
+        description: "Ingestion timestamp."
+        range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
+
+  - name: gtfs_stops
+    label: "CATS Transit Stops"
+    description: "CATS transit stops and station locations along light rail and planned commuter corridors."
+    columns:
+      - name: stop_id
+        type: string
+        description: "Standard GTFS unique station or stop identifier."
+        examples: ["STN_DAVIDSON_01", "STN_CORNELIUS_01"]
+      - name: stop_code
+        type: string
+        description: "Internal public transit route stop code."
+        examples: ["RL_DAV", "RL_COR"]
+      - name: stop_name
+        type: string
+        description: "Public-facing station name."
+        examples: ["Davidson Main & Griffith", "Cornelius Town Center"]
+      - name: stop_lat
+        type: number
+        description: "Latitude in WGS84 decimal degrees."
+        examples: [35.4993, 35.4866]
+      - name: stop_lon
+        type: number
+        description: "Longitude in WGS84 decimal degrees."
+        examples: [-80.8431, -80.8601]
+      - name: zone_id
+        type: string
+        description: "Geographic corridor fare zone."
+        examples: ["NORTH_MECK", "CENTRAL"]
+      - name: ingest_timestamp
+        type: datetime
+        description: "Ingestion timestamp."
+        range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
+
