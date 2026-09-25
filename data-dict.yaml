@@ -1,117 +1,274 @@
-$version: 0.1.0
+$version: 0.2.0
 $learn_more: https://data-dict.tidyverse.org/
 
-name: rlim_bronze
-label: "Red Line Impact Model (RLIM) Bronze Layer"
+name: rlim_data_warehouse
+label: "Red Line Impact Model (RLIM) Analytical Data Dictionary"
 description: >-
-  Bronze analytical layer schemas for Mecklenburg County real estate transactions,
-  tax parcel geodata, and CATS transit stops.
+  Data dictionary for the RLIM DuckDB warehouse covering Bronze ingestion layers
+  and Silver spatial feature engineering for Mecklenburg County transit-oriented development.
 
 tables:
-  - name: parcels
-    label: "Mecklenburg County Tax Parcels"
-    description: "Mecklenburg County geographic tax parcel polygons and baseline county assessment valuations."
+  # =========================================================================
+  # BRONZE LAYER
+  # =========================================================================
+  - name: bronze.parcels
+    label: "Mecklenburg County Tax Parcels (Bronze)"
+    description: "Raw cadastral parcel boundaries ingested from gis.charlottenc.gov CountyData MapServer."
     columns:
       - name: parcel_id
         type: string
-        description: "Unique Mecklenburg County parcel identification number (PID)."
-        examples: ["00123456", "00123457"]
-      - name: owner_name
+        description: "Mecklenburg County Parcel Identification Number (PID)."
+        examples: ["00101101", "00123456"]
+      - name: nc_pin
         type: string
-        description: "Deeded owner of record."
-        examples: ["TOWN OF DAVIDSON", "TRUSTEE CORP"]
-      - name: legal_desc
+        description: "North Carolina permanent parcel identification number."
+        examples: ["00101101", "00123457"]
+      - name: raw_zoning
         type: string
-        description: "Recorded legal subdivision or plat description."
-        examples: ["LOT 1 BLK 2 MAIN ST", "UNIT 301 CONDO"]
-      - name: zoning
-        type: string
-        description: "Municipality-specific zoning classification code."
-        examples: ["TOD-CC", "R-1", "V-C"]
-      - name: land_unit_val
+        description: "Municipal zoning classification code from county cadastral records."
+        examples: ["TOD-CC", "R-3", "UR-2"]
+      - name: shape_area_sqft
         type: number
-        description: "Assessed land value from county revaluation in USD."
-        examples: [320000.0, 450000.0]
+        description: "Official cadastral surface area in square feet calculated by county GIS engine."
+        examples: [19594.48, 34699.51]
       - name: calc_acreage
         type: number
-        description: "Total parcel geographic area in acres."
-        examples: [0.45, 0.75]
+        description: "Calculated parcel land area in acres (shape_area_sqft / 43,560)."
+        examples: [0.4498, 0.7966]
       - name: geom
         type: string
-        description: "Centroid or polygon coordinates in EPSG:4326."
-        examples: ["POINT(-80.8431 35.4993)"]
+        description: "Raw boundary geometry represented as WKT or internal spatial geometry (OGC:CRS84 / EPSG:4326)."
+        examples: ["POLYGON ((-80.8431 35.4993, ...))"]
       - name: ingest_timestamp
         type: datetime
-        description: "Timestamp when record entered the Bronze layer."
+        description: "Timestamp when record entered the warehouse."
         range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
 
-  - name: property_sales
-    label: "Property Sales Transactions"
-    description: "Historical real estate deed recordings and sales transactions across Mecklenburg County."
+  - name: bronze.gtfs_stops
+    label: "CATS Transit Platforms & Proposed Stations (Bronze)"
+    description: "Station centroids aggregated from live CATS MapServer platform polygons and planned Red Line coordinates."
+    columns:
+      - name: stop_id
+        type: string
+        description: "Standard station code or planned identifier."
+        examples: ["JWC", "RL_DAVIDSON", "RL_CORNELIUS"]
+      - name: stop_name
+        type: string
+        description: "Public-facing transit platform or planned station name."
+        examples: ["JW Clay Blvd Station", "Davidson Main & Griffith Station"]
+      - name: stop_lat
+        type: number
+        description: "Latitude in WGS84 decimal degrees."
+        range: [35.0, 35.6]
+      - name: stop_lon
+        type: number
+        description: "Longitude in WGS84 decimal degrees."
+        range: [-81.0, -80.6]
+      - name: line_name
+        type: string
+        description: "Transit corridor or line designation."
+        examples: ["BL", "BLE", "SL", "GL", "Red Line"]
+      - name: geom
+        type: string
+        description: "Centroid geometry point in OGC:CRS84 (Longitude, Latitude)."
+        examples: ["POINT (-80.8431 35.4993)"]
+      - name: is_planned
+        type: boolean
+        description: "Flag indicating whether the station is an active asset (FALSE) or proposed extension (TRUE)."
+        examples: [false, true]
+      - name: ingest_timestamp
+        type: datetime
+        description: "Timestamp when record was materialized into Bronze."
+        range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
+
+  - name: bronze.property_sales
+    label: "Recorded Property Transactions (Bronze)"
+    description: "Historical Mecklenburg County deed recordings and sales transactions."
     columns:
       - name: sale_id
         type: string
-        description: "Unique system or transaction identifier."
-        examples: ["SALE_2024_001", "SALE_2021_092"]
+        description: "Unique deed or system transaction identifier."
+        examples: ["SALE_00101101", "SALE_2024_001"]
       - name: parcel_id
         type: string
-        description: "Foreign key referencing parcels.parcel_id."
-        examples: ["00123456", "00123457"]
+        description: "Foreign key referencing bronze.parcels.parcel_id."
+        examples: ["00101101", "00123456"]
       - name: sale_date
         type: date
-        description: "Date of transaction closing and deed recording."
+        description: "Closing or deed recording date."
         range: ["2000-01-01", "2026-12-31"]
       - name: sale_price
         type: number
-        description: "Nominal recorded sales price in USD."
-        examples: [420000.0, 550000.0]
+        description: "Nominal transaction sales price in USD."
+        examples: [450000.0, 550000.0]
       - name: qualified_sale_flag
         type: string
-        description: "Indicates whether the sale meets arms-length market criteria."
+        description: "Flag indicating arm's-length market qualification."
         examples: ["Y", "N"]
       - name: deed_book
         type: string
         description: "Mecklenburg County Register of Deeds volume book index."
-        examples: ["34521", "28910"]
+        examples: ["34500", "34521"]
       - name: deed_page
         type: string
         description: "Mecklenburg County Register of Deeds page index."
-        examples: ["102", "45"]
+        examples: ["100", "102"]
       - name: ingest_timestamp
         type: datetime
         description: "Ingestion timestamp."
         range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
 
-  - name: gtfs_stops
-    label: "CATS Transit Stops"
-    description: "CATS transit stops and station locations along light rail and planned commuter corridors."
+  # =========================================================================
+  # SILVER LAYER
+  # =========================================================================
+  - name: silver.stations_spatial
+    label: "Reprojected Transit Stations (Silver)"
+    description: "CATS rail and proposed commuter platforms projected to North Carolina State Plane (EPSG:2264)."
     columns:
+      - name: station_uid
+        type: string
+        description: "Composite unique key resolving multi-line station collisions (line_name || '_' || stop_id)."
+        examples: ["Red Line_RL_DAVIDSON", "BLE_JWC"]
       - name: stop_id
         type: string
-        description: "Standard GTFS unique station or stop identifier."
-        examples: ["STN_DAVIDSON_01", "STN_CORNELIUS_01"]
-      - name: stop_code
-        type: string
-        description: "Internal public transit route stop code."
-        examples: ["RL_DAV", "RL_COR"]
+        description: "Base stop identifier."
+        examples: ["RL_DAVIDSON", "JWC"]
       - name: stop_name
         type: string
-        description: "Public-facing station name."
-        examples: ["Davidson Main & Griffith", "Cornelius Town Center"]
-      - name: stop_lat
-        type: number
-        description: "Latitude in WGS84 decimal degrees."
-        examples: [35.4993, 35.4866]
-      - name: stop_lon
-        type: number
-        description: "Longitude in WGS84 decimal degrees."
-        examples: [-80.8431, -80.8601]
-      - name: zone_id
+        description: "Full transit platform name."
+        examples: ["Davidson Main & Griffith Station", "JW Clay Blvd Station"]
+      - name: line_name
         type: string
-        description: "Geographic corridor fare zone."
-        examples: ["NORTH_MECK", "CENTRAL"]
-      - name: ingest_timestamp
+        description: "Corridor service name."
+        examples: ["Red Line", "BLE", "BL"]
+      - name: is_planned
+        type: boolean
+        description: "Status flag (TRUE for future Red Line, FALSE for active rail)."
+        examples: [true, false]
+      - name: geom_2264
+        type: string
+        description: "Point geometry projected into NC State Plane (EPSG:2264, US Survey Feet)."
+        examples: ["POINT (1449621.32 542686.55)"]
+
+  - name: silver.parcels_spatial
+    label: "Harmonized Parcel Hedonic & Spatial Feature Store (Silver)"
+    description: "Cadastral parcels with standardized zoning classifications, Euclidean distances to CBD/stations, and walkshed bands."
+    columns:
+      - name: parcel_id
+        type: string
+        description: "Mecklenburg County Parcel Identifier (PID)."
+        examples: ["00101101", "00123456"]
+      - name: nc_pin
+        type: string
+        description: "North Carolina permanent PIN."
+        examples: ["00101101"]
+      - name: shape_area_sqft
+        type: number
+        description: "Cadastral land area in square feet."
+        examples: [19594.48, 34699.51]
+      - name: calc_acreage
+        type: number
+        description: "Calculated acreage."
+        examples: [0.4498, 0.7966]
+      - name: zoning_category
+        type: string
+        description: "Harmonized land-use zoning category."
+        values: ["TOD", "SFR", "MFR", "OTHER_COMMERCIAL"]
+      - name: dist_to_cbd_ft
+        type: number
+        description: "Euclidean distance to Charlotte CBD (Trade & Tryon) in US Survey Feet."
+        examples: [92083.2, 94210.5]
+      - name: nearest_station_id
+        type: string
+        description: "Station UID of the nearest transit platform."
+        examples: ["Red Line_RL_CORNELIUS", "Red Line_RL_DAVIDSON"]
+      - name: nearest_station_name
+        type: string
+        description: "Name of the nearest transit platform."
+        examples: ["Cornelius Town Center Station", "Davidson Main & Griffith Station"]
+      - name: nearest_line
+        type: string
+        description: "Corridor line of the nearest station."
+        examples: ["Red Line", "BLE"]
+      - name: nearest_is_planned
+        type: boolean
+        description: "Whether the nearest station is planned (Red Line) or active."
+        examples: [true, false]
+      - name: dist_to_station_ft
+        type: number
+        description: "Euclidean distance to nearest platform in US Survey Feet."
+        examples: [4820.5, 1250.0]
+      - name: dist_to_station_meters
+        type: number
+        description: "Euclidean distance to nearest platform in meters (dist_to_station_ft * 0.3048)."
+        examples: [1469.3, 381.0]
+      - name: transit_buffer_tier
+        type: string
+        description: "Transit walkshed catchment classification."
+        values:
+          - "QUARTER_MILE_WALK"
+          - "HALF_MILE_WALK"
+          - "ONE_MILE_ACCESS"
+          - "OUTSIDE_WALKSHED"
+      - name: processed_timestamp
         type: datetime
-        description: "Ingestion timestamp."
+        description: "Timestamp when feature transformation ran."
         range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
 
+  - name: silver.cpi_deflator
+    label: "BLS CPI Inflation Deflator Index (Silver)"
+    description: "Bureau of Labor Statistics annual CPI-U averages used to adjust transaction prices to real 2026 dollars."
+    columns:
+      - name: sale_year
+        type: integer
+        description: "Calendar year of property transaction."
+        range: [2000, 2026]
+      - name: cpi_index
+        type: number
+        description: "Annual BLS CPI-U index value (Base Year = 2026)."
+        examples: [270.970, 333.300]
+
+  - name: silver.sales_standardized
+    label: "Standardized Real Estate Transactions (Silver)"
+    description: "Historical arm's-length sales deflated to real 2026 dollars with calculated real price per square foot (PPSF)."
+    columns:
+      - name: sale_id
+        type: string
+        description: "Unique deed transaction identifier."
+        examples: ["SALE_00101101"]
+      - name: parcel_id
+        type: string
+        description: "Foreign key referencing silver.parcels_spatial.parcel_id."
+        examples: ["00101101"]
+      - name: sale_date
+        type: date
+        description: "Closing or deed recording date."
+        range: ["2000-01-01", "2026-12-31"]
+      - name: sale_year
+        type: integer
+        description: "Calendar year of sale."
+        range: [2000, 2026]
+      - name: nominal_price
+        type: number
+        description: "Recorded nominal sales price in USD."
+        examples: [450000.0]
+      - name: real_price_2026
+        type: number
+        description: "Sale price standardized to 2026 purchasing power using BLS CPI-U index."
+        examples: [553511.46]
+      - name: shape_area_sqft
+        type: number
+        description: "Parcel cadastral footprint area in square feet."
+        examples: [19594.48]
+      - name: ppsf_real_2026
+        type: number
+        description: "Real 2026 price per square foot of land area (real_price_2026 / shape_area_sqft)."
+        examples: [28.25, 15.95]
+      - name: qualified_sale_flag
+        type: string
+        description: "Arm's-length transaction flag screening transfers < $10,000."
+        examples: ["Y"]
+      - name: processed_timestamp
+        type: datetime
+        description: "Timestamp when standardization completed."
+        range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]

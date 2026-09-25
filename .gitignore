@@ -4,3 +4,12 @@ __pycache__/
 *.duckdb.wal
 data/bronze/sales/*.csv
 data/bronze/gtfs/*.zip
+
+# Jupyter Checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# DuckDB Warehouse & Large Raw GeoJSONs
+data/
+*.duckdb
+*.geojson
