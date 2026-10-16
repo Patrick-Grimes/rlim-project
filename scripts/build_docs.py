@@ -69,7 +69,7 @@ df_trends = con.execute('''
 
 con.close()
 
-# 3. Create Plots
+# 3. Create Interactive Plots
 theme = dict(
     margin=dict(l=40, r=40, t=30, b=40),
     template='plotly_white',
@@ -105,14 +105,16 @@ if not df_trends.empty:
     fig4.add_trace(go.Scatter(x=df_trends['sale_year'], y=df_trends['median_nominal'], mode='lines+markers', name='Nominal Price', line=dict(color='#7f8c8d', width=2, dash='dot')))
 fig4.update_layout(theme, xaxis_title='Sale Year', yaxis_title='Median Price', yaxis_tickprefix='$', xaxis=dict(tickmode='linear', dtick=1))
 
-# Encode DiD Event-Study PNG
-fig_path = Path('docs/figures/did_parallel_trends.png')
-did_img_tag = ""
-if fig_path.exists():
-    img_b64 = base64.b64encode(fig_path.read_bytes()).decode('utf-8')
-    did_img_tag = f'<img src="data:image/png;base64,{img_b64}" class="img-fluid rounded border shadow-sm my-3" alt="DiD Parallel Trends">'
-else:
-    did_img_tag = '<div class="alert alert-warning">Run scripts/models_hedonic.py to generate event-study plot.</div>'
+# Helper to base64 encode figures
+def encode_img(path_str):
+    p = Path(path_str)
+    if p.exists():
+        b64 = base64.b64encode(p.read_bytes()).decode('utf-8')
+        return f'<img src="data:image/png;base64,{b64}" class="img-fluid rounded border shadow-sm my-2" />'
+    return '<div class="alert alert-warning py-1 my-2 small">Artifact pending generation.</div>'
+
+did_img_tag = encode_img('docs/figures/did_parallel_trends.png')
+gold_img_tag = encode_img('docs/figures/gold_modeling_summary.png')
 
 # 4. Render index.html
 html = f'''<!DOCTYPE html>
@@ -179,10 +181,11 @@ html += f'''
                 </div>
             </div>
             <div class="tab-pane fade" id="econometrics-panel">
-                <div class="card">
-                    <div class="card-header bg-primary text-white py-2"><h6 class="mb-0 fw-bold">Quasi-Experimental Difference-in-Differences (DiD) Event Study</h6></div>
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white py-2"><h6 class="mb-0 fw-bold">Gold Layer Econometric Dashboard & Causal DiD Proxy</h6></div>
                     <div class="card-body">
-                        <div class="text-center">{did_img_tag}</div>
+                        <div class="text-center">{gold_img_tag}</div>
+                        <div class="text-center mt-3">{did_img_tag}</div>
                         <h6 class="fw-bold mt-4">Econometric Model Output Summary</h6>
                         <div class="table-responsive">
                             <table class="table table-bordered table-sm mt-2">
@@ -224,10 +227,11 @@ html += f'''
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.getElementById('analytics-tab').addEventListener('shown.bs.tab', () => window.dispatchEvent(new Event('resize')));
+        document.getElementById('econometrics-tab').addEventListener('shown.bs.tab', () => window.dispatchEvent(new Event('resize')));
     </script>
 </body>
 </html>
 '''
 
 Path('docs/index.html').write_text(html)
-print('✓ docs/index.html compiled successfully with Econometric Specification tab.')
+print('✓ docs/index.html compiled successfully with Gold modeling visuals.')
