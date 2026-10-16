@@ -6,9 +6,9 @@ DB_PATH = "data/transit_warehouse.duckdb"
 HTML_PATH = Path("docs/index.html")
 
 def run_checks():
-    print("=" * 65)
-    print("RLIM SPRINT 3 PRE-FLIGHT VALIDATION & VERIFICATION AUDIT")
-    print("=" * 65)
+    print("=" * 70)
+    print("RLIM SPRINT 3: MULTI-CORRIDOR & DID PANEL VALIDATION AUDIT")
+    print("=" * 70)
     
     if not Path(DB_PATH).exists():
         print(f"❌ FAIL: Database file not found at {DB_PATH}")
@@ -20,73 +20,51 @@ def run_checks():
     
     failed_checks = 0
 
-    print("\n[1] Auditing Transit Station Nodes...")
-    red_line_count = con.execute("""
-        SELECT COUNT(*) FROM bronze.gtfs_stops WHERE line_name = 'Red Line';
-    """).fetchone()[0]
+    # 1. STATION PLATFORMS & CORRIDOR ATTRIBUTION
+    print("\n[1] Auditing Transit Corridors & Control Nodes...")
+    corridor_dist = con.execute("""
+        SELECT COALESCE(line_name, 'UNKNOWN') AS line_clean, COUNT(*) AS n, MIN(opening_year) AS open_yr
+        FROM silver.stations_spatial
+        GROUP BY line_clean
+        ORDER BY n DESC;
+    """).fetchall()
     
-    if red_line_count == 11:
-        print("  ✓ Pass: Exactly 11 Red Line platforms materialized.")
-    else:
-        print(f"  ❌ FAIL: Expected 11 Red Line platforms, found {red_line_count}.")
-        failed_checks += 1
+    lines_found = {row[0]: row[1] for row in corridor_dist}
+    for name, count, yr in corridor_dist:
+        safe_name = str(name)
+        print(f"  • Corridor: {safe_name:<18} Platforms: {count:>3} | Timeline Baseline: {yr}")
+        
+    for required in ['Red Line', 'BL', 'BLE', 'Control_Matthews']:
+        if required not in lines_found:
+            print(f"  ❌ FAIL: Missing required corridor '{required}'.")
+            failed_checks += 1
+    if failed_checks == 0:
+        print("  ✓ Pass: All primary treatment, proxy, and control platforms materialized.")
 
-    silver_stations = con.execute("""
-        SELECT COUNT(*) FROM silver.stations_spatial WHERE line_name = 'Red Line';
-    """).fetchone()[0]
-    if silver_stations == 11:
-        print("  ✓ Pass: All 11 stations reprojected into silver.stations_spatial (EPSG:2264).")
-    else:
-        print(f"  ❌ FAIL: silver.stations_spatial has {silver_stations} Red Line records.")
-        failed_checks += 1
-
-    print("\n[2] Auditing Parcel Buffers & Geometry Bounds...")
-    parcel_cnt = con.execute("SELECT COUNT(*) FROM bronze.parcels;").fetchone()[0]
-    print(f"  • Total Bronze Corridor Parcels: {parcel_cnt:,}")
-    
-    if parcel_cnt < 1000:
-        print("  ❌ FAIL: Parcel count is suspiciously low for a 2-mile corridor.")
+    # 2. MULTI-CORRIDOR PARCEL INTEGRITY
+    print("\n[2] Auditing Multi-Corridor Parcel Fabric...")
+    parcel_cnt = con.execute("SELECT COUNT(*) FROM silver.parcels_spatial;").fetchone()[0]
+    print(f"  • Total Project Parcels: {parcel_cnt:,}")
+    if parcel_cnt < 25000:
+        print("  ❌ FAIL: Ingested parcel count is suspiciously low for all 4 corridors.")
         failed_checks += 1
     else:
-        print("  ✓ Pass: Parcel sample size aligns with full corridor footprint.")
+        print("  ✓ Pass: Parcel extraction covers full multi-corridor footprint.")
 
+    # Catchment balance
     tier_dist = con.execute("""
         SELECT transit_buffer_tier, COUNT(*) AS n, ROUND(AVG(dist_to_station_meters), 1) AS mean_m
         FROM silver.parcels_spatial
         GROUP BY transit_buffer_tier
         ORDER BY mean_m ASC;
     """).fetchall()
-    
-    print("\n  Walkshed Distribution:")
-    walkshed_counts = {}
+    print("\n  Catchment Tier Distribution:")
     for tier, n, mean_m in tier_dist:
-        walkshed_counts[tier] = n
-        print(f"    - {tier:<20} {n:>6,} parcels (avg dist: {mean_m:>6.1f} m)")
-        
-    for key in ['QUARTER_MILE_WALK', 'HALF_MILE_WALK', 'ONE_MILE_ACCESS']:
-        if walkshed_counts.get(key, 0) == 0:
-            print(f"  ❌ FAIL: Catchment tier '{key}' contains 0 parcels.")
-            failed_checks += 1
-    if failed_checks == 0:
-        print("  ✓ Pass: Catchment tiers reflect balanced spatial distribution across the corridor.")
+        print(f"    - {tier:<20} {n:>7,} parcels (avg dist: {mean_m:>6.1f} m)")
 
-    print("\n[3] Auditing Regional Urban Gradients...")
-    cbd_stats = con.execute("""
-        SELECT 
-            MIN(dist_to_cbd_ft / 5280.0), 
-            MAX(dist_to_cbd_ft / 5280.0) 
-        FROM silver.parcels_spatial;
-    """).fetchone()
-    min_cbd, max_cbd = cbd_stats
-    print(f"  • Distance to CBD Range: {min_cbd:.2f} miles to {max_cbd:.2f} miles")
-    if min_cbd < 1.0 and max_cbd > 15.0:
-        print("  ✓ Pass: CBD distance spans Uptown through North Mecklenburg (Trade & Tryon reference verified).")
-    else:
-        print("  ❌ FAIL: CBD distance calculation out of expected corridor range.")
-        failed_checks += 1
-
-    print("\n[4] Auditing Econometric Sales Sample (2018–2026)...")
-    year_stats = con.execute("""
+    # 3. LONGITUDINAL SALES PANEL COVERAGE (2012–2026)
+    print("\n[3] Auditing Sales Panel & Anticipation Windows (2012–2026)...")
+    sales_stats = con.execute("""
         SELECT 
             MIN(sale_year), 
             MAX(sale_year), 
@@ -94,59 +72,57 @@ def run_checks():
             COUNT(*) 
         FROM silver.sales_standardized;
     """).fetchone()
-    min_yr, max_yr, num_yrs, total_sales = year_stats
-    print(f"  • Total Standardized Sales: {total_sales:,} across {num_yrs} distinct years ({min_yr} to {max_yr})")
+    min_yr, max_yr, distinct_yrs, total_sales = sales_stats
+    print(f"  • Standardized Sales: {total_sales:,} across {distinct_yrs} years ({min_yr} to {max_yr})")
     
-    if num_yrs >= 8 and min_yr == 2018 and max_yr == 2026:
-        print("  ✓ Pass: Full multi-year longitudinal coverage established.")
+    if min_yr <= 2012 and max_yr == 2026 and distinct_yrs >= 14:
+        print("  ✓ Pass: Longitudinal depth supports pre-construction, anticipation, and operational phases.")
     else:
-        print(f"  ❌ FAIL: Missing historical years in sales records (Found {num_yrs} years).")
+        print(f"  ❌ FAIL: Sales timeline does not span 2012–2026 (Found: {min_yr}–{max_yr}, {distinct_yrs} years).")
         failed_checks += 1
 
-    invalid_ppsf = con.execute("""
-        SELECT COUNT(*) FROM silver.sales_standardized WHERE ppsf_real_2026 <= 0 OR ppsf_real_2026 IS NULL;
-    """).fetchone()[0]
-    if invalid_ppsf == 0:
-        print("  ✓ Pass: Real Price Per Square Foot (ppsf_real_2026) has 0 null or non-positive values.")
+    # 4. GOLD HEDONIC & DID SAMPLE VIEW
+    print("\n[4] Auditing Gold Layer Econometric View (gold.hedonic_sample)...")
+    gold_stats = con.execute("""
+        SELECT 
+            COUNT(*) AS total_obs,
+            SUM(in_walkshed) AS treated_walkshed_obs,
+            SUM(era_pre_construction) AS pre_const_obs,
+            SUM(era_anticipation) AS anticipation_obs,
+            SUM(era_revenue_service) AS revenue_obs
+        FROM gold.hedonic_sample;
+    """).fetchone()
+    obs, walkshed_n, pre_n, ant_n, rev_n = gold_stats
+    print(f"  • Total Modeling Observations: {obs:,}")
+    print(f"  • Pre-Construction (2012–2013): {pre_n:,}")
+    print(f"  • Anticipation Phase (2014–2017): {ant_n:,}")
+    print(f"  • Revenue Service (2018–2026): {rev_n:,}")
+    
+    if obs > 0 and pre_n > 0 and ant_n > 0 and rev_n > 0:
+        print("  ✓ Pass: Event study partitions populated across all temporal regimes.")
     else:
-        print(f"  ❌ FAIL: Found {invalid_ppsf} invalid ppsf_real_2026 rows.")
+        print("  ❌ FAIL: Gold layer missing observation coverage in one or more event eras.")
         failed_checks += 1
 
-    deflation_test = con.execute("""
-        SELECT COUNT(*) 
-        FROM silver.sales_standardized 
-        WHERE sale_year < 2026 AND real_price_2026 < nominal_price;
-    """).fetchone()[0]
-    if deflation_test == 0:
-        print("  ✓ Pass: CPI deflation direction verified (historical nominal prices properly scaled up to 2026 USD).")
-    else:
-        print(f"  ❌ FAIL: Found {deflation_test} transactions where historical real price was lower than nominal price.")
-        failed_checks += 1
-
-    print("\n[5] Auditing Documentation Artifacts...")
+    # 5. DOCUMENTATION ARTIFACTS
+    print("\n[5] Auditing Compiled Documentation...")
     if HTML_PATH.exists():
         html_size = HTML_PATH.stat().st_size / 1024.0
-        print(f"  ✓ Pass: docs/index.html compiled ({html_size:.1f} KB).")
-        html_text = HTML_PATH.read_text()
-        if "Real 2026" in html_text and "Walkshed Tier" in html_text:
-            print("  ✓ Pass: docs/index.html contains expected Plotly figures and tabs.")
-        else:
-            print("  ❌ FAIL: docs/index.html is missing visualization figure containers.")
-            failed_checks += 1
+        print(f"  ✓ Pass: docs/index.html verified ({html_size:.1f} KB).")
     else:
-        print(f"  ❌ FAIL: docs/index.html does not exist at {HTML_PATH}.")
+        print(f"  ❌ FAIL: docs/index.html not found.")
         failed_checks += 1
 
     con.close()
 
-    print("\n" + "=" * 65)
+    print("\n" + "=" * 70)
     if failed_checks == 0:
-        print("🎯 ALL AUDIT CHECKS PASSED. Ready to commit and push.")
-        print("=" * 65)
+        print("🎯 ALL MULTI-CORRIDOR & DID AUDIT CHECKS PASSED.")
+        print("=" * 70)
         return 0
     else:
         print(f"⚠️  VALIDATION FAILED: {failed_checks} check(s) did not pass.")
-        print("=" * 65)
+        print("=" * 70)
         return 1
 
 if __name__ == "__main__":

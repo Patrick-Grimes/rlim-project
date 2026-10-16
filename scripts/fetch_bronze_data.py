@@ -24,7 +24,7 @@ def download_file(url: str, output_path: Path):
     print(f"  ✓ Saved {len(content) / 1024:.1f} KB.")
 
 def ingest_stations(con):
-    print("\n--- 1. Ingesting CATS Active Rail Platforms & 11 Red Line Stations ---")
+    print("\n--- 1. Ingesting Transit Platforms with Opening Timelines ---")
     base_url = "https://gis.charlottenc.gov/arcgis/rest/services/CATS/TransitStationDevelopmentPublic/MapServer/0/query"
     params = {
         "where": "Station IS NOT NULL",
@@ -41,7 +41,13 @@ def ingest_stations(con):
     WITH raw_features AS (
         SELECT 
             "Station"::VARCHAR AS station_code,
-            "Corridor"::VARCHAR AS line_name,
+            CASE 
+                WHEN "Corridor" IS NULL OR "Corridor" = '' THEN 'BL'
+                WHEN UPPER("Corridor") IN ('BLE', 'NORTHEAST') THEN 'BLE'
+                WHEN UPPER("Corridor") IN ('GL', 'STREETCAR') THEN 'GL'
+                WHEN UPPER("Corridor") = 'SL' THEN 'SL'
+                ELSE UPPER("Corridor")
+            END AS line_name,
             geom
         FROM ST_Read('{geojson_path.as_posix()}')
         WHERE geom IS NOT NULL AND "Station" IS NOT NULL
@@ -62,43 +68,58 @@ def ingest_stations(con):
         line_name,
         station_geom AS geom,
         FALSE AS is_planned,
+        CASE 
+            WHEN line_name = 'BL' THEN 2007
+            WHEN line_name = 'BLE' THEN 2018
+            WHEN line_name = 'GL' THEN 2015
+            WHEN line_name = 'SL' THEN 2015
+            ELSE 2015
+        END AS opening_year,
         CURRENT_TIMESTAMP AS ingest_timestamp
     FROM station_clusters;
     """)
 
+    # 11 Red Line Corridor Nodes
     con.execute("""
-    INSERT INTO bronze.gtfs_stops (stop_id, stop_name, stop_lat, stop_lon, line_name, geom, is_planned)
+    INSERT INTO bronze.gtfs_stops (stop_id, stop_name, stop_lat, stop_lon, line_name, geom, is_planned, opening_year)
     VALUES 
-        ('RL_MT_MOURNE', 'Mount Mourne', 35.5312, -80.8268, 'Red Line', ST_Point(-80.8268, 35.5312), TRUE),
-        ('RL_DAVIDSON', 'Davidson', 35.4993, -80.8431, 'Red Line', ST_Point(-80.8431, 35.4993), TRUE),
-        ('RL_CORNELIUS', 'Cornelius', 35.4805, -80.8602, 'Red Line', ST_Point(-80.8602, 35.4805), TRUE),
-        ('RL_SAM_FURR', 'Sam Furr', 35.4495, -80.8680, 'Red Line', ST_Point(-80.8680, 35.4495), TRUE),
-        ('RL_HUNTERSVILLE', 'Huntersville', 35.4102, -80.8435, 'Red Line', ST_Point(-80.8435, 35.4102), TRUE),
-        ('RL_HAMBRIGHT', 'Hambright', 35.3780, -80.8450, 'Red Line', ST_Point(-80.8450, 35.3780), TRUE),
-        ('RL_EASTFIELD', 'Eastfield', 35.3520, -80.8350, 'Red Line', ST_Point(-80.8350, 35.3520), TRUE),
-        ('RL_HARRIS', 'Harris', 35.3180, -80.8380, 'Red Line', ST_Point(-80.8380, 35.3180), TRUE),
-        ('RL_DERITA', 'Derita', 35.2840, -80.8050, 'Red Line', ST_Point(-80.8050, 35.2840), TRUE),
-        ('RL_CAMP_NORTH_END', 'Camp North End', 35.2480, -80.8230, 'Red Line', ST_Point(-80.8230, 35.2480), TRUE),
-        ('RL_GATEWAY', 'Charlotte Gateway Station', 35.2300, -80.8490, 'Red Line', ST_Point(-80.8490, 35.2300), TRUE);
+        ('RL_MT_MOURNE', 'Mount Mourne', 35.5312, -80.8268, 'Red Line', ST_Point(-80.8268, 35.5312), TRUE, 2032),
+        ('RL_DAVIDSON', 'Davidson', 35.4993, -80.8431, 'Red Line', ST_Point(-80.8431, 35.4993), TRUE, 2032),
+        ('RL_CORNELIUS', 'Cornelius', 35.4805, -80.8602, 'Red Line', ST_Point(-80.8602, 35.4805), TRUE, 2032),
+        ('RL_SAM_FURR', 'Sam Furr', 35.4495, -80.8680, 'Red Line', ST_Point(-80.8680, 35.4495), TRUE, 2032),
+        ('RL_HUNTERSVILLE', 'Huntersville', 35.4102, -80.8435, 'Red Line', ST_Point(-80.8435, 35.4102), TRUE, 2032),
+        ('RL_HAMBRIGHT', 'Hambright', 35.3780, -80.8450, 'Red Line', ST_Point(-80.8450, 35.3780), TRUE, 2032),
+        ('RL_EASTFIELD', 'Eastfield', 35.3520, -80.8350, 'Red Line', ST_Point(-80.8350, 35.3520), TRUE, 2032),
+        ('RL_HARRIS', 'Harris', 35.3180, -80.8380, 'Red Line', ST_Point(-80.8380, 35.3180), TRUE, 2032),
+        ('RL_DERITA', 'Derita', 35.2840, -80.8050, 'Red Line', ST_Point(-80.8050, 35.2840), TRUE, 2032),
+        ('RL_CAMP_NORTH_END', 'Camp North End', 35.2480, -80.8230, 'Red Line', ST_Point(-80.8230, 35.2480), TRUE, 2032),
+        ('RL_GATEWAY', 'Charlotte Gateway Station', 35.2300, -80.8490, 'Red Line', ST_Point(-80.8490, 35.2300), TRUE, 2032);
+    """)
+
+    # Matthews / Independence Control Spine Nodes
+    con.execute("""
+    INSERT INTO bronze.gtfs_stops (stop_id, stop_name, stop_lat, stop_lon, line_name, geom, is_planned, opening_year)
+    VALUES 
+        ('CTRL_MATTHEWS', 'Matthews Town Center', 35.1167, -80.7225, 'Control_Matthews', ST_Point(-80.7225, 35.1167), TRUE, 9999),
+        ('CTRL_IDLEWILD', 'Idlewild Independence', 35.1632, -80.7511, 'Control_Matthews', ST_Point(-80.7511, 35.1632), TRUE, 9999),
+        ('CTRL_EASTLAND', 'Eastland Mall Node', 35.2031, -80.7562, 'Control_Matthews', ST_Point(-80.7562, 35.2031), TRUE, 9999);
     """)
 
     cnt = con.execute("SELECT count(*) FROM bronze.gtfs_stops;").fetchone()[0]
-    print(f"  ✓ Materialized {cnt} transit platforms (including 11 Red Line stations).")
+    print(f"  ✓ Materialized {cnt} transit platforms and control nodes.")
 
-def ingest_parcels_from_shapefile(con):
-    print("\n--- 2. Ingesting NC OneMap Mecklenburg Shapefile (2-Mile Corridor Filter) ---")
+def ingest_parcels(con):
+    print("\n--- 2. Ingesting Multi-Corridor Parcels (Red, Blue, BLE, & Control) ---")
     shp_path = PARCELS_DIR / "nc_mecklenburg_parcels_poly.shp"
-    if not shp_path.exists():
-        raise FileNotFoundError(f"Missing {shp_path}.")
 
     con.execute("""
-    CREATE OR REPLACE TEMP TABLE temp_corridor_union AS
+    CREATE OR REPLACE TEMP TABLE temp_study_corridors AS
     SELECT ST_Union_Agg(ST_Transform(geom, 'OGC:CRS84', 'EPSG:2264')) AS corridor_pts
     FROM bronze.gtfs_stops
-    WHERE line_name = 'Red Line';
+    WHERE line_name IN ('Red Line', 'BL', 'BLE', 'Control_Matthews');
     """)
 
-    print("  Executing spatial filter across 2-mile buffer (10,560 US Survey Feet)...")
+    print("  Buffering all study corridors by 2 miles (10,560 US Survey Feet)...")
     con.execute(f"""
     CREATE OR REPLACE TABLE bronze.parcels AS
     WITH raw_parcels AS (
@@ -118,15 +139,15 @@ def ingest_parcels_from_shapefile(con):
         WHERE geom IS NOT NULL AND PARNO IS NOT NULL AND GISACRES > 0.01
     )
     SELECT p.parcel_id, p.nc_pin, p.raw_zoning, p.calc_acreage, p.shape_area_sqft, p.geom_2264, p.geom, p.last_saledate, p.assessed_val, p.ingest_timestamp
-    FROM raw_parcels p, temp_corridor_union u
+    FROM raw_parcels p, temp_study_corridors u
     WHERE p.rn = 1 AND ST_DWithin(p.geom_2264, u.corridor_pts, 10560.0);
     """)
 
     cnt = con.execute("SELECT count(*) FROM bronze.parcels;").fetchone()[0]
-    print(f"  ✓ Filtered and materialized {cnt:,} unique corridor parcels.")
+    print(f"  ✓ Ingested {cnt:,} parcels across all study and control corridors.")
 
 def seed_sales(con):
-    print("\n--- 3. Seeding Longitudinal Repeat Sales Sample (2018-2026) ---")
+    print("\n--- 3. Seeding Longitudinal Panel Transactions (2012-2026) ---")
     con.execute("""
     CREATE TABLE IF NOT EXISTS bronze.property_sales (
         sale_id VARCHAR PRIMARY KEY,
@@ -152,7 +173,7 @@ def seed_sales(con):
         WHERE calc_acreage BETWEEN 0.05 AND 10.0
     ),
     years AS (
-        SELECT unnest([2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]) AS yr
+        SELECT unnest([2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]) AS yr
     )
     SELECT 
         'SALE_' || p.parcel_id || '_' || y.yr || '_' || p.rnum AS sale_id,
@@ -172,7 +193,7 @@ def seed_sales(con):
     """)
 
     cnt = con.execute("SELECT count(*) FROM bronze.property_sales;").fetchone()[0]
-    print(f"  ✓ Materialized {cnt:,} multi-year sales transactions.")
+    print(f"  ✓ Seeded {cnt:,} longitudinal transactions across 2012-2026.")
 
 def main():
     con = duckdb.connect(DB_PATH)
@@ -181,11 +202,11 @@ def main():
     con.execute("CREATE SCHEMA IF NOT EXISTS bronze;")
 
     ingest_stations(con)
-    ingest_parcels_from_shapefile(con)
+    ingest_parcels(con)
     seed_sales(con)
 
     con.close()
-    print("\n✓ Bronze layer pipeline finished.")
+    print("\n✓ Multi-corridor Bronze pipeline finished.")
 
 if __name__ == "__main__":
     main()

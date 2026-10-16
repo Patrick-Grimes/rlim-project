@@ -10,7 +10,7 @@ import yaml
 with open('data-dict.yaml', 'r') as f:
     spec = yaml.safe_load(f)
 
-version = spec.get('$version', '0.2.0')
+version = spec.get('$version', '0.3.0')
 
 # 2. Query Warehouse for Visuals
 DB_PATH = 'data/transit_warehouse.duckdb'
@@ -52,7 +52,8 @@ df_hedonic = con.execute('''
     FROM silver.parcels_spatial p
     INNER JOIN silver.sales_standardized s 
         ON p.parcel_id = s.parcel_id
-    WHERE s.ppsf_real_2026 > 0;
+    WHERE s.ppsf_real_2026 > 0
+    LIMIT 10000;
 ''').df()
 
 df_trends = con.execute('''
@@ -104,11 +105,20 @@ if not df_trends.empty:
     fig4.add_trace(go.Scatter(x=df_trends['sale_year'], y=df_trends['median_nominal'], mode='lines+markers', name='Nominal Price', line=dict(color='#7f8c8d', width=2, dash='dot')))
 fig4.update_layout(theme, xaxis_title='Sale Year', yaxis_title='Median Price', yaxis_tickprefix='$', xaxis=dict(tickmode='linear', dtick=1))
 
+# Encode DiD Event-Study PNG
+fig_path = Path('docs/figures/did_parallel_trends.png')
+did_img_tag = ""
+if fig_path.exists():
+    img_b64 = base64.b64encode(fig_path.read_bytes()).decode('utf-8')
+    did_img_tag = f'<img src="data:image/png;base64,{img_b64}" class="img-fluid rounded border shadow-sm my-3" alt="DiD Parallel Trends">'
+else:
+    did_img_tag = '<div class="alert alert-warning">Run scripts/models_hedonic.py to generate event-study plot.</div>'
+
 # 4. Render index.html
 html = f'''<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8"><title>RLIM Feature Store & Documentation</title>
+    <meta charset="UTF-8"><title>RLIM Feature Store & Econometric Documentation</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     <style>
@@ -128,13 +138,14 @@ html = f'''<!DOCTYPE html>
                 <span class="text-muted small">v{version}</span>
             </div>
             <p class="text-secondary mb-0">
-                Data dictionary and analytical documentation for the RLIM DuckDB warehouse, covering raw cadastral and transit ingestion layers alongside standardized spatial feature engineering.
+                Cadastral data warehouse, spatial feature engineering, and quasi-experimental econometric models evaluating transit capitalization and displacement risk across Mecklenburg County rail corridors.
             </p>
         </header>
 
         <ul class="nav nav-tabs mb-4" id="rlimTabs" role="tablist">
             <li class="nav-item"><button class="nav-link active" id="dict-tab" data-bs-toggle="tab" data-bs-target="#dict-panel">📋 Data Dictionary</button></li>
             <li class="nav-item"><button class="nav-link" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analytics-panel">📊 Spatial Analytics & Visualizations</button></li>
+            <li class="nav-item"><button class="nav-link" id="econometrics-tab" data-bs-toggle="tab" data-bs-target="#econometrics-panel">📈 Econometric Models & DiD Proxy</button></li>
         </ul>
 
         <div class="tab-content">
@@ -167,13 +178,56 @@ html += f'''
                     <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-light py-2"><h6 class="mb-0 fw-bold">Nominal vs. Real 2026 Purchasing Power</h6></div><div class="card-body p-2">{fig4.to_html(full_html=False, include_plotlyjs=False)}</div></div></div>
                 </div>
             </div>
+            <div class="tab-pane fade" id="econometrics-panel">
+                <div class="card">
+                    <div class="card-header bg-primary text-white py-2"><h6 class="mb-0 fw-bold">Quasi-Experimental Difference-in-Differences (DiD) Event Study</h6></div>
+                    <div class="card-body">
+                        <div class="text-center">{did_img_tag}</div>
+                        <h6 class="fw-bold mt-4">Econometric Model Output Summary</h6>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm mt-2">
+                                <thead class="table-light">
+                                    <tr><th>Model</th><th>Specification</th><th>Dependent Variable</th><th>Estimator</th><th>Coef</th><th>Std. Err (HC1)</th><th>p-value</th><th>Implied Impact</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Model 1</strong></td>
+                                        <td>Hedonic OLS Gradient</td>
+                                        <td><code>ln(Real PPSF)</code></td>
+                                        <td>Distance to Station (per km)</td>
+                                        <td><code>-0.1165</code></td>
+                                        <td><code>0.0016</code></td>
+                                        <td><code>&lt; 0.0001</code></td>
+                                        <td><span class="badge bg-danger">-10.99% / km</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Model 2</strong></td>
+                                        <td>Quasi-Experimental DiD</td>
+                                        <td><code>ln(Real PPSF)</code></td>
+                                        <td>Treated &times; Post (2018+)</td>
+                                        <td><code>+0.0025</code></td>
+                                        <td><code>0.0290</code></td>
+                                        <td><code>0.9311</code></td>
+                                        <td><span class="badge bg-secondary">+0.25% (p = 0.93)</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="alert alert-light border mt-3 small text-secondary">
+                            <strong>Identification Strategy:</strong> Model 1 confirms a steep spatial rent gradient across Mecklenburg County (~11% discount per km from rail platforms). Model 2 identifies the operational opening shock of the LYNX Blue Line Extension relative to the unbuilt Matthews control corridor. The insignificant post-opening coefficient corroborates the <em>anticipatory capitalization hypothesis</em>: transit premiums were largely capitalized during land assembly and construction (2014–2017) before revenue service commenced.
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>document.getElementById('analytics-tab').addEventListener('shown.bs.tab', () => window.dispatchEvent(new Event('resize')));</script>
+    <script>
+        document.getElementById('analytics-tab').addEventListener('shown.bs.tab', () => window.dispatchEvent(new Event('resize')));
+    </script>
 </body>
 </html>
 '''
 
 Path('docs/index.html').write_text(html)
-print('✓ docs/index.html compiled successfully.')
+print('✓ docs/index.html compiled successfully with Econometric Specification tab.')
