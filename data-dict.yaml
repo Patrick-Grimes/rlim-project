@@ -1,15 +1,16 @@
-$version: 0.2.0
+$version: 0.4.0
 $learn_more: https://data-dict.tidyverse.org/
 
 name: rlim_data_warehouse
 label: "Red Line Impact Model (RLIM) Analytical Data Dictionary"
 description: >-
-  Data dictionary for the RLIM DuckDB warehouse covering Bronze ingestion layers
-  and Silver spatial feature engineering for Mecklenburg County transit-oriented development.
+  Data dictionary for the RLIM DuckDB warehouse covering Bronze raw cadastral ingestion,
+  Silver spatial feature engineering, and Gold econometric modeling views for
+  Mecklenburg County transit-oriented development and capitalization research.
 
 tables:
   # =========================================================================
-  # BRONZE LAYER
+  # BRONZE LAYER (Raw Ingestion)
   # =========================================================================
   - name: bronze.parcels
     label: "Mecklenburg County Tax Parcels (Bronze)"
@@ -26,7 +27,7 @@ tables:
       - name: raw_zoning
         type: string
         description: "Municipal zoning classification code from county cadastral records."
-        examples: ["TOD-CC", "R-3", "UR-2"]
+        examples: ["TOD-CC", "R-3", "UR-2", "B-1"]
       - name: shape_area_sqft
         type: number
         description: "Official cadastral surface area in square feet calculated by county GIS engine."
@@ -67,7 +68,7 @@ tables:
       - name: line_name
         type: string
         description: "Transit corridor or line designation."
-        examples: ["BL", "BLE", "SL", "GL", "Red Line"]
+        examples: ["BL", "BLE", "SL", "GL", "Red Line", "Control_Matthews"]
       - name: geom
         type: string
         description: "Centroid geometry point in OGC:CRS84 (Longitude, Latitude)."
@@ -99,7 +100,7 @@ tables:
         range: ["2000-01-01", "2026-12-31"]
       - name: sale_price
         type: number
-        description: "Nominal transaction sales price in USD."
+        description: "Nominal transaction sales price in USD recorded on deed."
         examples: [450000.0, 550000.0]
       - name: qualified_sale_flag
         type: string
@@ -119,7 +120,7 @@ tables:
         range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
 
   # =========================================================================
-  # SILVER LAYER
+  # SILVER LAYER (Feature Engineering & Standardization)
   # =========================================================================
   - name: silver.stations_spatial
     label: "Reprojected Transit Stations (Silver)"
@@ -140,10 +141,10 @@ tables:
       - name: line_name
         type: string
         description: "Corridor service name."
-        examples: ["Red Line", "BLE", "BL"]
+        examples: ["Red Line", "BLE", "BL", "Control_Matthews"]
       - name: is_planned
         type: boolean
-        description: "Status flag (TRUE for future Red Line, FALSE for active rail)."
+        description: "Status flag (TRUE for future Red Line / Silver Line, FALSE for active rail)."
         examples: [true, false]
       - name: geom_2264
         type: string
@@ -152,7 +153,7 @@ tables:
 
   - name: silver.parcels_spatial
     label: "Harmonized Parcel Hedonic & Spatial Feature Store (Silver)"
-    description: "Cadastral parcels with standardized zoning classifications, Euclidean distances to CBD/stations, and walkshed bands."
+    description: "Cadastral parcels with standardized zoning categories, Euclidean distances to CBD/stations, and walkshed tiers."
     columns:
       - name: parcel_id
         type: string
@@ -168,7 +169,7 @@ tables:
         examples: [19594.48, 34699.51]
       - name: calc_acreage
         type: number
-        description: "Calculated acreage."
+        description: "Calculated acreage (shape_area_sqft / 43,560)."
         examples: [0.4498, 0.7966]
       - name: zoning_category
         type: string
@@ -188,11 +189,11 @@ tables:
         examples: ["Cornelius Town Center Station", "Davidson Main & Griffith Station"]
       - name: nearest_line
         type: string
-        description: "Corridor line of the nearest station."
-        examples: ["Red Line", "BLE"]
+        description: "Corridor line of the nearest station platform."
+        examples: ["Red Line", "BLE", "BL", "Control_Matthews"]
       - name: nearest_is_planned
         type: boolean
-        description: "Whether the nearest station is planned (Red Line) or active."
+        description: "Whether the nearest station is planned or currently active."
         examples: [true, false]
       - name: dist_to_station_ft
         type: number
@@ -204,7 +205,7 @@ tables:
         examples: [1469.3, 381.0]
       - name: transit_buffer_tier
         type: string
-        description: "Transit walkshed catchment classification."
+        description: "Transit catchment classification."
         values:
           - "QUARTER_MILE_WALK"
           - "HALF_MILE_WALK"
@@ -217,7 +218,7 @@ tables:
 
   - name: silver.cpi_deflator
     label: "BLS CPI Inflation Deflator Index (Silver)"
-    description: "Bureau of Labor Statistics annual CPI-U averages used to adjust transaction prices to real 2026 dollars."
+    description: "Bureau of Labor Statistics annual CPI-U averages used to adjust nominal transaction prices to real 2026 purchasing power."
     columns:
       - name: sale_year
         type: integer
@@ -225,7 +226,7 @@ tables:
         range: [2000, 2026]
       - name: cpi_index
         type: number
-        description: "Annual BLS CPI-U index value (Base Year = 2026)."
+        description: "Annual BLS CPI-U index value (Base Year = 2026, 333.300)."
         examples: [270.970, 333.300]
 
   - name: silver.sales_standardized
@@ -272,3 +273,116 @@ tables:
         type: datetime
         description: "Timestamp when standardization completed."
         range: ["2024-01-01T00:00:00Z", "2027-12-31T23:59:59Z"]
+
+  # =========================================================================
+  # GOLD LAYER (Analytical Views & Econometric Modeling)
+  # =========================================================================
+  - name: gold.hedonic_sample
+    label: "Econometric Modeling Sample (Gold)"
+    description: >-
+      Denormalized modeling view combining arms-length real deed transactions with 
+      spatial accessibility covariates, zoning fixed effects, and policy era indicators.
+    columns:
+      - name: sale_id
+        type: string
+        description: "Deed transaction primary key."
+      - name: parcel_id
+        type: string
+        description: "Cadastral parcel identifier."
+      - name: sale_year
+        type: integer
+        description: "Calendar year of transaction (2012–2026)."
+      - name: log_real_price
+        type: number
+        description: "Natural log of total real sales price (LN(real_price_2026))."
+      - name: log_real_ppsf
+        type: number
+        description: "Natural log of real price per square foot of land area (LN(ppsf_real_2026)). Primary regression regressand."
+      - name: real_price_2026
+        type: number
+        description: "Deflated real transaction price in 2026 dollars."
+      - name: nominal_price
+        type: number
+        description: "Raw nominal consideration recorded on deed."
+      - name: ppsf_real_2026
+        type: number
+        description: "Real price per square foot of land area."
+      - name: shape_area_sqft
+        type: number
+        description: "Parcel footprint area in square feet."
+      - name: calc_acreage
+        type: number
+        description: "Calculated parcel acreage."
+      - name: dist_to_cbd_miles
+        type: number
+        description: "Distance to Charlotte CBD (Trade & Tryon) in statute miles (dist_to_cbd_ft / 5,280)."
+      - name: dist_station_km
+        type: number
+        description: "Distance to nearest rail station platform in kilometers (dist_to_station_meters / 1,000)."
+      - name: nearest_line
+        type: string
+        description: "Nearest transit corridor (BLE, BL, Red Line, Control_Matthews)."
+      - name: nearest_station_name
+        type: string
+        description: "Name of the nearest station platform. Used as the clustering unit for standard errors."
+      - name: zoning_category
+        type: string
+        description: "Categorical zoning classification (SFR reference, MFR, OTHER_COMMERCIAL, TOD)."
+      - name: in_walkshed
+        type: integer
+        description: "Binary pedestrian indicator (1 if dist_to_station_ft <= 2640, else 0)."
+      - name: is_blue_line
+        type: integer
+        description: "Binary indicator for Blue Line (BL) or Blue Line Extension (BLE) parcels."
+      - name: is_control_corridor
+        type: integer
+        description: "Binary indicator for unbuilt Matthews / Silver Line counterfactual corridor."
+      - name: is_red_line
+        type: integer
+        description: "Binary indicator for planned Red Line commuter rail corridor."
+      - name: era_pre_construction
+        type: integer
+        description: "Binary policy era dummy: Sale occurred before FTA FFGA funding (Year < 2014)."
+      - name: era_anticipation
+        type: integer
+        description: "Binary policy era dummy: Sale occurred during funding and active construction (2014 <= Year <= 2017)."
+      - name: era_revenue_service
+        type: integer
+        description: "Binary policy era dummy: Sale occurred during revenue service operations (Year >= 2018)."
+
+  - name: gold.transaction_velocity
+    label: "Market Liquidity & Turnover Panel (Gold)"
+    description: >-
+      Balanced stratum-year panel tracking annual transaction volume against total parcel inventory
+      to evaluate market liquidity, turnover surges, and land banking assembly behavior.
+    columns:
+      - name: nearest_line
+        type: string
+        description: "Corridor service designation."
+      - name: in_walkshed
+        type: integer
+        description: "Pedestrian walkshed boundary indicator (1 if <= 0.5 mi, 0 otherwise)."
+      - name: zoning_category
+        type: string
+        description: "Harmonized land-use zoning category."
+      - name: sale_year
+        type: integer
+        description: "Calendar transaction year (2012–2026)."
+      - name: tx_count
+        type: integer
+        description: "Total deed transactions recorded within the stratum-year cell. Zero-filled via Cartesian grid."
+      - name: total_parcels
+        type: integer
+        description: "Total parcel inventory stock in the spatial stratum (denominator for turnover rate and Poisson offset)."
+      - name: turnover_rate_pct
+        type: number
+        description: "Annual turnover percentage per 100 parcels ((tx_count / total_parcels) * 100)."
+      - name: median_real_ppsf
+        type: number
+        description: "Median real PPSF of transactions in cell (NULL for zero-transaction years)."
+      - name: mean_real_ppsf
+        type: number
+        description: "Mean real PPSF of transactions in cell (NULL for zero-transaction years)."
+      - name: policy_era
+        type: string
+        description: "Categorical transit lifecycle era: Pre-Grant Baseline, Anticipation / Construction, or Revenue Service."
